@@ -1,0 +1,62 @@
+/*
+ * Sample CAPL file to test the outliner
+ */
+
+// Global variables
+int gCounter = 0;
+const int MAX_COUNT = 100;
+float gTemperature;
+
+/*
+ * Initialize function - called at startup
+ */
+void initializeSystem() {
+  int localVar = 0;
+  
+  // Initialize system variables
+  gCounter = 0;
+  gTemperature = 25.5;
+  
+  // Start timers
+  setTimer(periodicTimer, 100);
+}
+
+/*
+ * Process received CAN message
+ */
+on message CANMsg1 {
+  word msgId = this.id;
+  byte data1 = this.byte(0);
+  
+  // Process data
+  if (data1 > 10) {
+    gCounter++;
+  }
+}
+
+/*
+ * Handle timer events
+ */
+on timer periodicTimer {
+  // Check temperature
+  if (gTemperature > 30.0) {
+    writeToLog("Temperature too high!");
+  }
+  
+  // Reset timer
+  setTimer(periodicTimer, 100);
+}
+
+/*
+ * User input handling
+ */
+on key 'a' {
+  writeToLog("Key A pressed");
+}
+
+/*
+ * Utility functions
+ */
+int calculateValue(int inputVal) {
+  return inputVal * 2;
+} 
