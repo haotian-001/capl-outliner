@@ -365,20 +365,19 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                     lineRange
                 );
 
-                const parent =
-                    currentSymbol &&
-                    (braceStack.length > 0 ||
-                     currentSymbol.kind === vscode.SymbolKind.Function ||
-                     currentSymbol.kind === vscode.SymbolKind.Method  ||
-                     currentSymbol.kind === vscode.SymbolKind.Event)
-                        ? currentSymbol
-                        : null;
+                // Always add structs to the top level symbols array
+                // unless explicitly inside a function/method/event handler
+                if (currentSymbol && 
+                    (currentSymbol.kind === vscode.SymbolKind.Function ||
+                     currentSymbol.kind === vscode.SymbolKind.Method ||
+                     currentSymbol.kind === vscode.SymbolKind.Event)) {
+                    currentSymbol.children.push(structSymbol);
+                } else {
+                    symbols.push(structSymbol);
+                }
 
-                if (parent) { parent.children.push(structSymbol); }
-                else { symbols.push(structSymbol); }
-
-                parentSymbolStack.push(parent);      // remember our parent
-                currentStructOrEnum = structSymbol;  // for member parsing
+                parentSymbolStack.push(currentSymbol);  // remember our parent
+                currentStructOrEnum = structSymbol;     // for member parsing
                 if (line.includes('{')) { braceStack.push(i); }
                 continue;
             }
@@ -394,20 +393,19 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                     lineRange,
                     lineRange
                 );
-                const parent =
-                    currentSymbol &&
-                    (braceStack.length > 0 ||
-                     currentSymbol.kind === vscode.SymbolKind.Function ||
+                
+                // Always add structs to the top level symbols array
+                // unless explicitly inside a function/method/event handler
+                if (currentSymbol && 
+                    (currentSymbol.kind === vscode.SymbolKind.Function ||
                      currentSymbol.kind === vscode.SymbolKind.Method ||
-                     currentSymbol.kind === vscode.SymbolKind.Event)
-                        ? currentSymbol
-                        : null;
-                if (parent) {
-                    parent.children.push(structSymbol);
+                     currentSymbol.kind === vscode.SymbolKind.Event)) {
+                    currentSymbol.children.push(structSymbol);
                 } else {
                     symbols.push(structSymbol);
                 }
-                parentSymbolStack.push(parent);
+                
+                parentSymbolStack.push(currentSymbol);
                 currentSymbol = structSymbol;
                 currentStructOrEnum = structSymbol;
                 continue;
@@ -425,18 +423,21 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                     lineRange
                 );
 
-                // ── attach this enum to its logical parent ──
-                const parent =
-                    currentStructOrEnum
-                    ?? (braceStack.length > 0 ? currentSymbol : null);
+                // Always add enums to the top level symbols array
+                // unless explicitly inside a function/method/event handler
+                if (currentSymbol && 
+                    (currentSymbol.kind === vscode.SymbolKind.Function ||
+                     currentSymbol.kind === vscode.SymbolKind.Method ||
+                     currentSymbol.kind === vscode.SymbolKind.Event)) {
+                    currentSymbol.children.push(enumSymbol);
+                } else {
+                    symbols.push(enumSymbol);
+                }
 
-                if (parent) { parent.children.push(enumSymbol); }
-                else        { symbols.push(enumSymbol); }
-
-                parentSymbolStack.push(parent);
-                currentSymbol       = enumSymbol;
+                parentSymbolStack.push(currentSymbol);
+                currentSymbol = enumSymbol;
                 currentStructOrEnum = enumSymbol;   // enable enum‑member parsing
-                braceStack          = [];           // to be filled when "{" is seen
+                braceStack = [];                   // fresh scope for this enum
                 continue;
             }
             
@@ -506,18 +507,21 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                     lineRange
                 );
 
-                // ── attach this enum to its logical parent ──
-                const parent =
-                    currentStructOrEnum                                 // e.g. inside a struct/enum/class
-                    ?? (braceStack.length > 0 ? currentSymbol : null);  // e.g. inside a function/method/event
+                // Always add enums to the top level symbols array
+                // unless explicitly inside a function/method/event handler
+                if (currentSymbol && 
+                    (currentSymbol.kind === vscode.SymbolKind.Function ||
+                     currentSymbol.kind === vscode.SymbolKind.Method ||
+                     currentSymbol.kind === vscode.SymbolKind.Event)) {
+                    currentSymbol.children.push(enumSymbol);
+                } else {
+                    symbols.push(enumSymbol);
+                }
 
-                if (parent) { parent.children.push(enumSymbol); }
-                else        { symbols.push(enumSymbol); }
-
-                parentSymbolStack.push(parent);
-                currentSymbol       = enumSymbol;
+                parentSymbolStack.push(currentSymbol);
+                currentSymbol = enumSymbol;
                 currentStructOrEnum = enumSymbol;   // enable enum‑member parsing
-                braceStack          = [];           // fresh scope for this enum
+                braceStack = [];                   // fresh scope for this enum
                 continue;
             }
             
@@ -560,6 +564,22 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             
             // Check for struct members inside struct blocks
             if (currentStructOrEnum && currentStructOrEnum.kind === vscode.SymbolKind.Struct && braceStack.length > 0) {
+                // Check for nested struct type references
+                const structTypeRefMatch = line.match(/^\s*struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;\s*$/);
+                if (structTypeRefMatch) {
+                    const structTypeName = structTypeRefMatch[1];
+                    const structMemberName = structTypeRefMatch[2];
+                    const structMemberSymbol = new vscode.DocumentSymbol(
+                        structMemberName,
+                        `struct ${structTypeName}`,
+                        vscode.SymbolKind.Field,
+                        lineRange,
+                        lineRange
+                    );
+                    currentStructOrEnum.children.push(structMemberSymbol);
+                    continue;
+                }
+                
                 // Array member inside struct
                 const structMemberArrayMatch = line.match(/^\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|enum\s+[a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[(.+)\]\s*(?:=.*)?;/);
                 if (structMemberArrayMatch) {
