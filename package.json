@@ -4,6 +4,10 @@
   "description": "Enhanced outline view for CAPL (CAN Access Programming Language) with support for structures, enumerations, classes, and all event handlers",
   "version": "0.3.0",
   "publisher": "capl-tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/haotian-001/capl-outliner.git"
+  },
   "engines": {
     "vscode": "^1.60.0"
   },

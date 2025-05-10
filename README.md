@@ -60,7 +60,7 @@ The outliner recognizes:
 
 ### Setup
 ```bash
-git clone https://github.com/yourusername/capl-outliner.git
+git clone https://github.com/haotian-001/capl-outliner.git
 cd capl-outliner
 npm install
 ```
@@ -69,6 +69,12 @@ npm install
 ```bash
 npm run compile
 ```
+
+### Packaging
+```bash
+npm run package
+```
+The extension uses `.vscodeignore` to exclude unnecessary files like the `refs` folder from the package, keeping the VSIX file size manageable.
 
 ### Testing
 - Press F5 in VS Code to launch a new window with the extension loaded
