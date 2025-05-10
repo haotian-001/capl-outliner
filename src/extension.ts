@@ -55,19 +55,19 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         const onEthLinkStateChangePattern = /^on\s+ethLinkStateChange\s+([a-zA-Z0-9_]+)\s*{/;
         
         // Variables, constants, and data structures
-        const variablePattern = /^(?:_align\(\d+\)\s+)?(?:(?:static|unsigned|signed|volatile|extern)\s+)*(int|float|byte|word|dword|char|long|int64|qword|double|string|timer|msTimer|message|FRFrame|FRPDU|linFrame|a429word|Signal\s*\*|diagRequest|diagResponse|J1587Message|J1587Param|sysvar\s*\*|sysvarInt\s*\*|sysvarFloat\s*\*|sysvarString\s*\*|ethernetPacket|ethernetErrorPacket|ethernetPort|ethernetPortAccessEntity|ethernetMacsecConfiguration|ethernetMacsecSecureEntity|IP_Address|IP_Endpoint|Eth)\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)*)\s*(?:\[.*\])?\s*(?:=.*)?;\s*(?:\/\/.*)?$/;
+        const variablePattern = /^(?!.*\[)(?:_align\(\d+\)\s+)?(?:(?:static|unsigned|signed|volatile|extern)\s+)*(int|float|byte|word|dword|char|long|int64|qword|double|string|timer|msTimer|message|FRFrame|FRPDU|linFrame|a429word|Signal\s*\*|diagRequest|diagResponse|J1587Message|J1587Param|sysvar\s*\*|sysvarInt\s*\*|sysvarFloat\s*\*|sysvarString\s*\*|ethernetPacket|ethernetErrorPacket|ethernetPort|ethernetPortAccessEntity|ethernetMacsecConfiguration|ethernetMacsecSecureEntity|IP_Address|IP_Endpoint|Eth)\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)*)\s*(?:\[.*\])?\s*(?:=.*)?;\s*(?:\/\/.*)?$/;
         const constPattern = /^const\s+(int|float|byte|word|dword|char|long|int64|qword|double|string)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*(?:=.*)?;\s*(?:\/\/.*)?$/;
-        const structPattern = /^(?:_align\(\d+\)\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*{/;
+        const structPattern = /^(?:_align\(\d+\)\s+)?struct\s*(?:([A-Za-z_][A-Za-z0-9_]*)\s*)?{/;
         // Struct declaration spread over two lines (opening brace on the next line)
-        const structStartPattern = /^(?:_align\(\d+\)\s+)?struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*$/;
-        const structWithVarPattern = /^(?:_align\(\d+\)\s+)?struct\s+(?:([a-zA-Z_][a-zA-Z0-9_]*)\s+)?\{.*\}\s+([a-zA-Z_][a-zA-Z0-9_]*);/;
+        const structStartPattern = /^(?:_align\(\d+\)\s+)?struct\s*(?:([A-Za-z_][A-Za-z0-9_]*)\s*)?$/;
+        const structWithVarPattern = /^(?:_align\(\d+\)\s+)?struct\s*(?:([A-Za-z_][A-Za-z0-9_]*)\s*)?\{\s*[\s\S]*?\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;\s*$/;
         const structVarPattern = /^struct\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)(?:\s*=\s*\{.*\})?\s*;\s*(?:\/\/.*)?$/;
         const enumPattern = /^enum\s+(?:([a-zA-Z_][a-zA-Z0-9_]*)\s*)?{/;
         const enumStartPattern = /^enum\s+(?:([a-zA-Z_][a-zA-Z0-9_]*)\s*)?$/;
         const classPattern = /^class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:extends\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*)?{/;
         const messageDeclarationPattern = /^message\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=.*)?;/;
         const arrayDeclarationPattern = /^(int|float|byte|word|dword|char|long|int64|qword|double|string)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[.*\]\s*(?:=.*)?;/;
-        const associativeArrayPattern = /^(int|float|byte|word|dword|char|long|int64|qword|double|string)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[(int|float|byte|word|dword|char|long|int64|qword|double|string)\]\s*(?:=.*)?;/;
+        const associativeArrayPattern = /^((?:int|float|byte|word|dword|char|long|int64|qword|double|string|struct\s+[a-zA-Z_][a-zA-Z0-9_]*))\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[(.+)\]\s*(?:=.*)?;/;
         
         // IP-related declarations
         const ipAddressPattern = /^IP_Address\s+(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[\da-fA-F:]+|\[[\da-fA-F:]+\])\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;/;
@@ -356,7 +356,7 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             // Check for structs
             const structMatch = line.match(structPattern);
             if (structMatch) {
-                const structName = structMatch[1];
+                const structName = structMatch[1] || 'anonymous';
                 const structSymbol = new vscode.DocumentSymbol(
                     structName,
                     'Structure',
@@ -386,7 +386,7 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             // Check for struct declarations where the opening brace is on the next line
             const structStartMatch = line.match(structStartPattern);
             if (structStartMatch) {
-                const structName = structStartMatch[1];
+                const structName = structStartMatch[1] || 'anonymous';
                 const structSymbol = new vscode.DocumentSymbol(
                     structName,
                     'Structure',
@@ -560,7 +560,24 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             
             // Check for struct members inside struct blocks
             if (currentStructOrEnum && currentStructOrEnum.kind === vscode.SymbolKind.Struct && braceStack.length > 0) {
-                const structMemberMatch = line.match(/^\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|enum\s+[a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*(?:=.*)?;/);
+                // Array member inside struct
+                const structMemberArrayMatch = line.match(/^\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|enum\s+[a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[(.+)\]\s*(?:=.*)?;/);
+                if (structMemberArrayMatch) {
+                    const structMemberType = structMemberArrayMatch[1];
+                    const structMemberName = structMemberArrayMatch[2];
+                    const arraySize = structMemberArrayMatch[3];
+                    const structMemberSymbol = new vscode.DocumentSymbol(
+                        structMemberName,
+                        `${structMemberType}[${arraySize}]`,
+                        vscode.SymbolKind.Array,
+                        lineRange,
+                        lineRange
+                    );
+                    currentStructOrEnum.children.push(structMemberSymbol);
+                    continue;
+                }
+                // Non-array field inside struct
+                const structMemberMatch = line.match(/^\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|struct\s+[a-zA-Z_][a-zA-Z0-9_]*|enum\s+[a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=.*)?;/);
                 if (structMemberMatch) {
                     const structMemberType = structMemberMatch[1];
                     const structMemberName = structMemberMatch[2];
@@ -571,7 +588,6 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                         lineRange,
                         lineRange
                     );
-                    
                     currentStructOrEnum.children.push(structMemberSymbol);
                     continue;
                 }
@@ -832,16 +848,34 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
                 }
             }
 
-            /* ── explicit end‑of‑struct detection (`};`) ─────────────────── */
-            if (currentStructOrEnum && /^\s*}\s*;/.test(line)) {
+            /* ── explicit end‑of‑struct detection with inline var (`} name;`) ─────────────────── */
+            const endStructMatch = line.match(/^\s*}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/);
+            if (currentStructOrEnum && endStructMatch) {
+                const varName = endStructMatch[1];
                 // extend the struct/enum's range to include this line
                 currentStructOrEnum.range = new vscode.Range(
                     currentStructOrEnum.range.start,
                     lineRange.end
                 );
-                currentStructOrEnum = null;             // done with this struct
-                currentSymbol = parentSymbolStack.pop() || null; // restore parent
-                continue;                               // nothing else on this line
+                // create a variable symbol for the struct instance
+                const structVarSymbol = new vscode.DocumentSymbol(
+                    varName,
+                    `${currentStructOrEnum.name} Instance`,
+                    vscode.SymbolKind.Variable,
+                    lineRange,
+                    lineRange
+                );
+                // attach to parent or top-level
+                const parent = parentSymbolStack.pop() || null;
+                if (parent) {
+                    parent.children.push(structVarSymbol);
+                } else {
+                    symbols.push(structVarSymbol);
+                }
+                // reset current context
+                currentStructOrEnum = null;
+                currentSymbol = parent;
+                continue;
             }
         }
         
