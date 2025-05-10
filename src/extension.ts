@@ -700,9 +700,13 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             if (arrayMatch) {
                 const arrayType = arrayMatch[1];
                 const arrayName = arrayMatch[2];
+                // Extract the array size from the declaration
+                const arraySizeMatch = line.match(/\s*\[(.*?)\]/);
+                const arraySize = arraySizeMatch ? arraySizeMatch[1] : '';
+                
                 const arraySymbol = new vscode.DocumentSymbol(
                     arrayName,
-                    `${arrayType}[]`,
+                    `${arrayType}[${arraySize}]`,
                     vscode.SymbolKind.Array,
                     lineRange,
                     lineRange
