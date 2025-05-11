@@ -136,9 +136,41 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             if (functionMatch && !line.endsWith(';')) {
                 const returnType = functionMatch[1];
                 const functionName = functionMatch[2];
+                
+                // Look ahead to find the closing parenthesis for function parameters
+                let parameterStr = '';
+                let j = i;
+                let bracketCount = 1; // Start with 1 for the opening parenthesis
+                let lineText = lines[j].substring(lines[j].indexOf('(') + 1);
+                
+                // Extract the parameter string by scanning forward until we find a balanced closing parenthesis
+                while (j < lines.length && bracketCount > 0) {
+                    for (let k = 0; k < lineText.length; k++) {
+                        const char = lineText.charAt(k);
+                        if (char === '(') bracketCount++;
+                        else if (char === ')') bracketCount--;
+                        
+                        if (bracketCount === 0) {
+                            parameterStr += lineText.substring(0, k);
+                            break;
+                        }
+                    }
+                    
+                    if (bracketCount > 0) {
+                        parameterStr += lineText + ' ';
+                        j++;
+                        if (j < lines.length) lineText = lines[j];
+                    } else {
+                        break; // Exit loop if we've found the closing parenthesis
+                    }
+                }
+                
+                const parameters = parameterStr.trim();
+                const functionSignature = `${returnType} ${functionName}(${parameters})`;
+                
                 const functionSymbol = new vscode.DocumentSymbol(
                     functionName,
-                    returnType,
+                    functionSignature,
                     vscode.SymbolKind.Function,
                     lineRange,
                     lineRange
@@ -154,9 +186,41 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             const testcaseMatch = line.match(testcasePattern);
             if (testcaseMatch) {
                 const testcaseName = testcaseMatch[1];
+                
+                // Look ahead to find the closing parenthesis for testcase parameters
+                let parameterStr = '';
+                let j = i;
+                let bracketCount = 1; // Start with 1 for the opening parenthesis
+                let lineText = lines[j].substring(lines[j].indexOf('(') + 1);
+                
+                // Extract the parameter string by scanning forward until we find a balanced closing parenthesis
+                while (j < lines.length && bracketCount > 0) {
+                    for (let k = 0; k < lineText.length; k++) {
+                        const char = lineText.charAt(k);
+                        if (char === '(') bracketCount++;
+                        else if (char === ')') bracketCount--;
+                        
+                        if (bracketCount === 0) {
+                            parameterStr += lineText.substring(0, k);
+                            break;
+                        }
+                    }
+                    
+                    if (bracketCount > 0) {
+                        parameterStr += lineText + ' ';
+                        j++;
+                        if (j < lines.length) lineText = lines[j];
+                    } else {
+                        break; // Exit loop if we've found the closing parenthesis
+                    }
+                }
+                
+                const parameters = parameterStr.trim();
+                const testcaseSignature = `testcase ${testcaseName}(${parameters})`;
+                
                 const testcaseSymbol = new vscode.DocumentSymbol(
                     testcaseName,
-                    'Test Case',
+                    testcaseSignature,
                     vscode.SymbolKind.Method,
                     lineRange,
                     lineRange
@@ -172,9 +236,41 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             const testfunctionMatch = line.match(testfunctionPattern);
             if (testfunctionMatch) {
                 const testfunctionName = testfunctionMatch[1];
+                
+                // Look ahead to find the closing parenthesis for testfunction parameters
+                let parameterStr = '';
+                let j = i;
+                let bracketCount = 1; // Start with 1 for the opening parenthesis
+                let lineText = lines[j].substring(lines[j].indexOf('(') + 1);
+                
+                // Extract the parameter string by scanning forward until we find a balanced closing parenthesis
+                while (j < lines.length && bracketCount > 0) {
+                    for (let k = 0; k < lineText.length; k++) {
+                        const char = lineText.charAt(k);
+                        if (char === '(') bracketCount++;
+                        else if (char === ')') bracketCount--;
+                        
+                        if (bracketCount === 0) {
+                            parameterStr += lineText.substring(0, k);
+                            break;
+                        }
+                    }
+                    
+                    if (bracketCount > 0) {
+                        parameterStr += lineText + ' ';
+                        j++;
+                        if (j < lines.length) lineText = lines[j];
+                    } else {
+                        break; // Exit loop if we've found the closing parenthesis
+                    }
+                }
+                
+                const parameters = parameterStr.trim();
+                const testfunctionSignature = `testfunction ${testfunctionName}(${parameters})`;
+                
                 const testfunctionSymbol = new vscode.DocumentSymbol(
                     testfunctionName,
-                    'Test Function',
+                    testfunctionSignature,
                     vscode.SymbolKind.Method,
                     lineRange,
                     lineRange
@@ -546,7 +642,7 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             
             // Check for enum members inside enum blocks
             if (currentStructOrEnum && currentStructOrEnum.kind === vscode.SymbolKind.Enum && braceStack.length > 0) {
-                const enumMemberMatch = line.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=.*)?(?:,|$)/);
+                const enumMemberMatch = line.match(/^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=.*?)?(?:,|$|\s*(?=\/\/)|\s*$)/);
                 if (enumMemberMatch) {
                     const enumMemberName = enumMemberMatch[1];
                     const enumMemberSymbol = new vscode.DocumentSymbol(
