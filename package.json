@@ -2,7 +2,7 @@
   "name": "capl-outliner",
   "displayName": "CAPL Outliner",
   "description": "Enhanced outline view for CAPL (CAN Access Programming Language) with support for structures, enumerations, classes, and all event handlers",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "sisyphus",
   "repository": {
     "type": "git",
