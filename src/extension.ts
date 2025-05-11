@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export function activate(context: vscode.ExtensionContext) {
     // Register the document symbol provider for CAPL files
@@ -7,6 +9,12 @@ export function activate(context: vscode.ExtensionContext) {
     
     context.subscriptions.push(
         vscode.languages.registerDocumentSymbolProvider(selector, documentSymbolProvider)
+    );
+    
+    // Register the definition provider for CAPL files
+    const definitionProvider = new CaplDefinitionProvider();
+    context.subscriptions.push(
+        vscode.languages.registerDefinitionProvider(selector, definitionProvider)
     );
     
     console.log('CAPL Outliner extension activated');
@@ -1000,5 +1008,295 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         }
         
         return symbols;
+    }
+}
+
+// Add a new class for handling definitions
+class CaplDefinitionProvider implements vscode.DefinitionProvider {
+    public async provideDefinition(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        token: vscode.CancellationToken
+    ): Promise<vscode.Definition | vscode.LocationLink[] | undefined> {
+        const symbolUnderCursor = this.getSymbolUnderCursor(document, position);
+        if (!symbolUnderCursor) {
+            return undefined;
+        }
+
+        // Try to find the definition in the current document first
+        const definitionInCurrentDoc = await this.findDefinitionInDocument(document, symbolUnderCursor);
+        if (definitionInCurrentDoc) {
+            return definitionInCurrentDoc;
+        }
+
+        // If not found in current document, look for include files
+        return this.findDefinitionInIncludedFiles(document, symbolUnderCursor);
+    }
+
+    private getSymbolUnderCursor(document: vscode.TextDocument, position: vscode.Position): string | undefined {
+        // Get the word at the position
+        const wordRange = document.getWordRangeAtPosition(position);
+        if (!wordRange) {
+            return undefined;
+        }
+        
+        const word = document.getText(wordRange);
+        
+        // Check for empty word or known keywords
+        if (!word || word.length === 0 || this.isKeyword(word)) {
+            return undefined;
+        }
+        
+        // Verify this is likely a symbol reference
+        if (this.isLikelySymbolReference(document, position, word)) {
+            return word;
+        }
+        
+        return undefined;
+    }
+
+    private isKeyword(word: string): boolean {
+        const caplKeywords = [
+            'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 
+            'continue', 'return', 'void', 'int', 'float', 'byte', 'word', 'dword', 
+            'char', 'long', 'int64', 'qword', 'double', 'string', 'timer', 'msTimer', 
+            'message', 'const', 'static', 'extern', 'this', 'sizeof', 'true', 'false',
+            'on', 'testcase', 'testfunction'
+        ];
+        
+        return caplKeywords.includes(word);
+    }
+
+    private isLikelySymbolReference(document: vscode.TextDocument, position: vscode.Position, word: string): boolean {
+        const lineText = document.lineAt(position.line).text;
+        const wordRange = document.getWordRangeAtPosition(position);
+        if (!wordRange) {
+            return false;
+        }
+        
+        const wordStartIndex = wordRange.start.character;
+        const wordEndIndex = wordRange.end.character;
+        
+        // Check if this is a function call (has parentheses after it)
+        if (wordEndIndex < lineText.length && lineText[wordEndIndex] === '(') {
+            return true;
+        }
+        
+        // Check if this is a member access (preceded by . or ->)
+        if (wordStartIndex > 0 && 
+            (lineText.substring(wordStartIndex - 2, wordStartIndex) === '->' || 
+             lineText[wordStartIndex - 1] === '.')) {
+            return true;
+        }
+        
+        // Check if this is an array access (followed by [)
+        if (wordEndIndex < lineText.length && lineText[wordEndIndex] === '[') {
+            return true;
+        }
+        
+        // Check if this looks like a variable use in an expression
+        const beforeChar = wordStartIndex > 0 ? lineText[wordStartIndex - 1] : '';
+        const afterChar = wordEndIndex < lineText.length ? lineText[wordEndIndex] : '';
+        
+        const operatorsBefore = [' ', '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', '(', ',', '?', ':'];
+        const operatorsAfter = [' ', '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', ')', ',', ';', '?', ':'];
+        
+        if (operatorsBefore.includes(beforeChar) && operatorsAfter.includes(afterChar)) {
+            return true;
+        }
+        
+        // Check if this is at the beginning of a line or if it follows a preprocessor directive
+        if (wordStartIndex === 0 || lineText.trim().startsWith('#')) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    private async findDefinitionInDocument(
+        document: vscode.TextDocument, 
+        symbolName: string
+    ): Promise<vscode.Location | undefined> {
+        const text = document.getText();
+        
+        // Pattern to find function definitions
+        const functionDefPattern = new RegExp(
+            `(void|int|float|byte|word|dword|char|long|int64|qword|double|string)\\s+${symbolName}\\s*\\(`, 
+            'g'
+        );
+        
+        // Pattern to find testcase definitions
+        const testcaseDefPattern = new RegExp(`testcase\\s+${symbolName}\\s*\\(`, 'g');
+        
+        // Pattern to find testfunction definitions
+        const testfunctionDefPattern = new RegExp(`testfunction\\s+${symbolName}\\s*\\(`, 'g');
+        
+        // Pattern to find struct definitions
+        const structDefPattern = new RegExp(`struct\\s+${symbolName}\\s*{`, 'g');
+        
+        // Pattern to find struct definitions with opening brace on next line
+        const structDefNextLinePattern = new RegExp(`struct\\s+${symbolName}\\s*$`, 'gm');
+        
+        // Pattern to find enum definitions
+        const enumDefPattern = new RegExp(`enum\\s+${symbolName}\\s*{`, 'g');
+        
+        // Pattern to find enum definitions with opening brace on next line
+        const enumDefNextLinePattern = new RegExp(`enum\\s+${symbolName}\\s*$`, 'gm');
+        
+        // Pattern to find class definitions
+        const classDefPattern = new RegExp(`class\\s+${symbolName}\\s*(?:extends\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s*)?{`, 'g');
+        
+        // Pattern to find class definitions with opening brace on next line
+        const classDefNextLinePattern = new RegExp(`class\\s+${symbolName}\\s*(?:extends\\s+[a-zA-Z_][a-zA-Z0-9_]*)?\\s*$`, 'gm');
+        
+        // Pattern to find variable declarations
+        const varDefPattern = new RegExp(
+            `(?:static|extern|const|unsigned|signed|volatile)?\\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|timer|msTimer|message|FRFrame|FRPDU|linFrame|a429word|diagRequest|diagResponse|J1587Message|J1587Param|ethernetPacket)\\s+(?:[a-zA-Z_][a-zA-Z0-9_]*,\\s*)*${symbolName}(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:\\[.*\\])?\\s*(?:=.*)?;`, 
+            'g'
+        );
+        
+        // Pattern to find struct variable declarations
+        const structVarDefPattern = new RegExp(
+            `struct\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s+(?:[a-zA-Z_][a-zA-Z0-9_]*,\\s*)*${symbolName}(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:=.*)?;`, 
+            'g'
+        );
+        
+        // Pattern to find function parameters
+        const parameterDefPattern = new RegExp(
+            `(?:void|int|float|byte|word|dword|char|long|int64|qword|double|string|struct\\s+[a-zA-Z_][a-zA-Z0-9_]*)\\s+${symbolName}\\s*(?:,|\\))`, 
+            'g'
+        );
+        
+        // Try to find the definition using various patterns
+        const patterns = [
+            functionDefPattern, 
+            testcaseDefPattern,
+            testfunctionDefPattern,
+            structDefPattern,
+            structDefNextLinePattern,
+            enumDefPattern,
+            enumDefNextLinePattern,
+            classDefPattern, 
+            classDefNextLinePattern,
+            varDefPattern,
+            structVarDefPattern,
+            parameterDefPattern
+        ];
+        
+        for (const pattern of patterns) {
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const startPos = document.positionAt(match.index);
+                
+                // Return the location with the entire line
+                return new vscode.Location(
+                    document.uri,
+                    new vscode.Position(startPos.line, 0)
+                );
+            }
+        }
+        
+        // Check for event handlers
+        const eventHandlerPatterns = [
+            new RegExp(`on\\s+${symbolName}\\s*{`, 'g'),                      // on message
+            new RegExp(`on\\s+timer\\s+${symbolName}\\s*{`, 'g'),             // on timer
+            new RegExp(`on\\s+key\\s+${symbolName}\\s*{`, 'g'),               // on key
+            new RegExp(`on\\s+sysvar\\s+${symbolName}\\s*{`, 'g'),            // on sysvar
+            new RegExp(`on\\s+error\\s+${symbolName}\\s*{`, 'g'),             // on error
+            new RegExp(`on\\s+J1587Message\\s+${symbolName}\\s*{`, 'g'),      // on J1587Message
+            new RegExp(`on\\s+J1587Param\\s+${symbolName}\\s*{`, 'g'),        // on J1587Param
+            new RegExp(`on\\s+J1587ErrorMessage\\s+${symbolName}\\s*{`, 'g'), // on J1587ErrorMessage
+            new RegExp(`on\\s+ethernetPacket\\s+${symbolName}\\s*{`, 'g'),    // on ethernetPacket
+            new RegExp(`on\\s+ethernetErrorPacket\\s+${symbolName}\\s*{`, 'g'),   // on ethernetErrorPacket
+            new RegExp(`on\\s+ethLinkStateChange\\s+${symbolName}\\s*{`, 'g')     // on ethLinkStateChange
+        ];
+        
+        for (const pattern of eventHandlerPatterns) {
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const startPos = document.positionAt(match.index);
+                
+                // Return the location with the entire line
+                return new vscode.Location(
+                    document.uri,
+                    new vscode.Position(startPos.line, 0)
+                );
+            }
+        }
+        
+        return undefined;
+    }
+
+    private async findDefinitionInIncludedFiles(
+        document: vscode.TextDocument, 
+        symbolName: string
+    ): Promise<vscode.Definition | undefined> {
+        // Find include statements in the document
+        // First look for CAPL-specific includes block
+        const includesBlockPattern = /includes\s*{([^}]*)}/s;
+        const documentText = document.getText();
+        const includedFiles: string[] = [];
+        
+        // Check for CAPL includes block
+        const includesBlockMatch = includesBlockPattern.exec(documentText);
+        if (includesBlockMatch) {
+            const includesBlockContent = includesBlockMatch[1];
+            // Find all #include statements inside the includes block
+            const includePattern = /#include\s+["<]([^">]+)[">]/g;
+            let includeMatch;
+            while ((includeMatch = includePattern.exec(includesBlockContent)) !== null) {
+                includedFiles.push(includeMatch[1]);
+            }
+        } else {
+            // Fallback to standard C-style includes if no includes block is found
+            const standardIncludePattern = /^#include\s+["<]([^">]+)[">]/gm;
+            let match;
+            while ((match = standardIncludePattern.exec(documentText)) !== null) {
+                includedFiles.push(match[1]);
+            }
+        }
+        
+        // Search in each included file
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            return undefined;
+        }
+        
+        for (const includeFile of includedFiles) {
+            // Try to resolve the path of the included file
+            let includeUri: vscode.Uri | undefined;
+            
+            // First try as a relative path
+            const relativePath = path.join(path.dirname(document.uri.fsPath), includeFile);
+            if (fs.existsSync(relativePath)) {
+                includeUri = vscode.Uri.file(relativePath);
+            } else {
+                // Search in workspace folders for an exact match
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (workspaceFolders) {
+                    for (const folder of workspaceFolders) {
+                        const potentialPath = path.join(folder.uri.fsPath, includeFile);
+                        if (fs.existsSync(potentialPath)) {
+                            includeUri = vscode.Uri.file(potentialPath);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (includeUri) {
+                try {
+                    const includedDocument = await vscode.workspace.openTextDocument(includeUri);
+                    const location = await this.findDefinitionInDocument(includedDocument, symbolName);
+                    if (location) {
+                        return location;
+                    }
+                } catch (error) {
+                    console.error(`Error opening included file: ${includeFile}`, error);
+                }
+            }
+        }
+        
+        return undefined;
     }
 } 
