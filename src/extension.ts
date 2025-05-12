@@ -38,7 +38,7 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
         const lines = text.split(/\r?\n/);
 
         // Regex patterns for various CAPL elements
-        const functionPattern = /^(void|int|float|byte|word|dword|char|long|int64|qword|double|string)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
+        const functionPattern = /^(void|int|float|byte|word|dword|char|long|int64|qword|double|string|enum\s+[a-zA-Z_][a-zA-Z0-9_]*|struct\s+[a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
         
         // Test-related patterns
         const testcasePattern = /^(?:export\s+)?testcase\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
@@ -1030,7 +1030,9 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         }
 
         // If not found in current document, look for include files
-        return this.findDefinitionInIncludedFiles(document, symbolUnderCursor);
+        // Create a new Set to track visited files to prevent circular references
+        const visitedFiles = new Set<string>();
+        return this.findDefinitionInIncludedFiles(document, symbolUnderCursor, visitedFiles);
     }
 
     private getSymbolUnderCursor(document: vscode.TextDocument, position: vscode.Position): string | undefined {
@@ -1119,9 +1121,9 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
     ): Promise<vscode.Location | undefined> {
         const text = document.getText();
         
-        // Pattern to find function definitions
+        // Pattern to find function definitions with standard, enum, and struct return types
         const functionDefPattern = new RegExp(
-            `(void|int|float|byte|word|dword|char|long|int64|qword|double|string)\\s+${symbolName}\\s*\\(`, 
+            `(void|int|float|byte|word|dword|char|long|int64|qword|double|string|enum\\s+[a-zA-Z_][a-zA-Z0-9_]*|struct\\s+[a-zA-Z_][a-zA-Z0-9_]*)\\s+${symbolName}\\s*\\(`, 
             'g'
         );
         
@@ -1229,8 +1231,16 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
 
     private async findDefinitionInIncludedFiles(
         document: vscode.TextDocument, 
-        symbolName: string
+        symbolName: string,
+        visitedFiles: Set<string> = new Set()
     ): Promise<vscode.Definition | undefined> {
+        // Add current file to visited files to prevent circular includes
+        const currentFilePath = document.uri.fsPath;
+        if (visitedFiles.has(currentFilePath)) {
+            return undefined;
+        }
+        visitedFiles.add(currentFilePath);
+        
         // Find include statements in the document
         // First look for CAPL-specific includes block
         const includesBlockPattern = /includes\s*{([^}]*)}/s;
@@ -1287,9 +1297,17 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
             if (includeUri) {
                 try {
                     const includedDocument = await vscode.workspace.openTextDocument(includeUri);
+                    
+                    // First search in the directly included file
                     const location = await this.findDefinitionInDocument(includedDocument, symbolName);
                     if (location) {
                         return location;
+                    }
+                    
+                    // If not found in direct include, search recursively in its nested includes
+                    const nestedLocation = await this.findDefinitionInIncludedFiles(includedDocument, symbolName, visitedFiles);
+                    if (nestedLocation) {
+                        return nestedLocation;
                     }
                 } catch (error) {
                     console.error(`Error opening included file: ${includeFile}`, error);

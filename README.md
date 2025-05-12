@@ -1,6 +1,6 @@
 # CAPL Outliner
 
-A Visual Studio Code extension for displaying the outline of CAPL (CAN Access Programming Language) code files.
+A Visual Studio Code extension for displaying the outline of CAPL (CAN Access Programming Language) code files and providing code navigation features.
 
 ## Features
 
@@ -8,6 +8,9 @@ This extension provides:
 - Code outline for CAPL (.can) files
 - Hierarchical view of functions, event handlers, variables, and constants
 - Quick navigation through document symbols
+- **Jump-to-definition** functionality for navigating to function and variable declarations
+
+### Code Outline
 
 The outliner recognizes:
 - Functions with proper return types (void, int, float, byte, word, dword, char, long, int64, qword, double, string)
@@ -30,6 +33,21 @@ The outliner recognizes:
 - Conditional compilation directives (`#if`, `#elif`, `#else`, `#endif`, `#define`)
 - Delegates
 
+### Jump-to-Definition
+
+The extension allows you to navigate to the definition of symbols by:
+- Holding Ctrl (Windows/Linux) or Cmd (Mac) and clicking on a function name or variable
+- The editor will jump to where that function or variable is defined
+- Works with definitions in both the current file and included files
+- Supports CAPL's unique include syntax: 
+  ```
+  includes
+  {
+    #include "file1.cin"
+    #include "file2.cin"
+  }
+  ```
+
 ## Installation
 
 ### From VSIX File
@@ -51,6 +69,9 @@ The outliner recognizes:
 3. Access the outline via:
    - Explorer view > Outline tab 
    - View > Outline
+4. To navigate to a function or variable definition:
+   - Hold Ctrl (Windows/Linux) or Cmd (Mac) and click on the symbol name
+   - The editor will jump to the definition location
 
 ## Development
 
