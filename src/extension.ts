@@ -1268,7 +1268,13 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
             `struct\\s+[a-zA-Z_][a-zA-Z0-9_]*\\s+(?:[a-zA-Z_][a-zA-Z0-9_]*,\\s*)*${symbolName}(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:=.*)?;`, 
             'g'
         );
-        
+
+        // Pattern to find associative array declarations
+        const associativeArrayDefPattern = new RegExp(
+          `(?:int|float|byte|word|dword|char|long|int64|qword|double|string|struct\\s+[a-zA-Z_][a-zA-Z0-9_]*|enum\\s+[a-zA-Z_][a-zA-Z0-9_]*)\\s+${symbolName}\\s*\\[.+?\\]\\s*(?:=.*)?;`,
+          'g'
+        );
+
         // Pattern to find function parameters
         const parameterDefPattern = new RegExp(
             `(?:void|int|float|byte|word|dword|char|long|int64|qword|double|string|struct\\s+[a-zA-Z_][a-zA-Z0-9_]*)\\s+${symbolName}\\s*(?:,|\\))`, 
@@ -1288,6 +1294,7 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
             classDefNextLinePattern,
             varDefPattern,
             structVarDefPattern,
+            associativeArrayDefPattern,
             parameterDefPattern
         ];
         
