@@ -1294,12 +1294,25 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         for (const pattern of patterns) {
             let match;
             while ((match = pattern.exec(text)) !== null) {
-                const startPos = document.positionAt(match.index);
+                let targetLine;
+                // If the current pattern is varDefPattern, we need to adjust the start position
+                // to skip any leading whitespace that might be part of match[0] (e.g., newlines).
+                if (pattern === varDefPattern) {
+                    const leadingWhitespaceLength = match[0].length - match[0].trimStart().length;
+                    const actualStartOffset = match.index + leadingWhitespaceLength;
+                    const startPos = document.positionAt(actualStartOffset);
+                    targetLine = startPos.line;
+                } else {
+                    // For other patterns, the original logic is usually fine as they tend to
+                    // start with non-whitespace characters or are line-anchored.
+                    const startPos = document.positionAt(match.index);
+                    targetLine = startPos.line;
+                }
                 
-                // Return the location with the entire line
+                // Return the location with the entire line, using the determined target line.
                 return new vscode.Location(
                     document.uri,
-                    new vscode.Position(startPos.line, 0)
+                    new vscode.Position(targetLine, 0)
                 );
             }
         }
