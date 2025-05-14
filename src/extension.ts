@@ -1018,6 +1018,12 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         position: vscode.Position,
         token: vscode.CancellationToken
     ): Promise<vscode.Definition | vscode.LocationLink[] | undefined> {
+        // Check if we're on an include file reference first
+        const includeLocation = await this.findIncludeFileLocation(document, position);
+        if (includeLocation) {
+            return includeLocation;
+        }
+
         const symbolUnderCursor = this.getSymbolUnderCursor(document, position);
         if (!symbolUnderCursor) {
             return undefined;
@@ -1033,6 +1039,106 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         // Create a new Set to track visited files to prevent circular references
         const visitedFiles = new Set<string>();
         return this.findDefinitionInIncludedFiles(document, symbolUnderCursor, visitedFiles);
+    }
+
+    private async findIncludeFileLocation(
+        document: vscode.TextDocument,
+        position: vscode.Position
+    ): Promise<vscode.Location | undefined> {
+        const line = document.lineAt(position.line).text;
+        
+        // Check for CAPL-style includes: #include "file.can" within includes { ... } block
+        // or standard C-style includes: #include "file.h" or #include <file.h>
+        const includeMatch = line.match(/#include\s+["<]([^">]+)[">]/);
+        if (includeMatch) {
+            const filename = includeMatch[1];
+            const filenameStart = line.indexOf(filename);
+            const filenameEnd = filenameStart + filename.length;
+            
+            // Check if the cursor is actually on the filename
+            if (position.character >= filenameStart && position.character <= filenameEnd) {
+                // Try to resolve the path of the included file
+                let includeUri: vscode.Uri | undefined;
+                
+                // First try as a relative path
+                const relativePath = path.join(path.dirname(document.uri.fsPath), filename);
+                if (fs.existsSync(relativePath)) {
+                    includeUri = vscode.Uri.file(relativePath);
+                } else {
+                    // Search in workspace folders for an exact match
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    if (workspaceFolders) {
+                        for (const folder of workspaceFolders) {
+                            const potentialPath = path.join(folder.uri.fsPath, filename);
+                            if (fs.existsSync(potentialPath)) {
+                                includeUri = vscode.Uri.file(potentialPath);
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (includeUri) {
+                    // Return a location pointing to the start of the file
+                    return new vscode.Location(includeUri, new vscode.Position(0, 0));
+                }
+            }
+        }
+        
+        // Check for an 'includes' block with direct paths without #include syntax
+        // CAPL sometimes allows include files to be specified directly within an includes block
+        // Example: includes { "file.can" "anotherfile.can" }
+        const quotedPathMatch = line.match(/["']([^"']+\.(can|cin|h|inc))["']/);
+        if (quotedPathMatch && !line.includes('#include')) {  // Ensure we don't double-match #include statements
+            const includedText = document.getText();
+            // Check if we're inside an includes block
+            const includesBlockRegex = /includes\s*\{([\s\S]*?)\}/;
+            const includesMatch = includesBlockRegex.exec(includedText);
+            
+            if (includesMatch && includesMatch[1]) {
+                const blockContent = includesMatch[1];
+                // The current line must be within this block
+                const blockStart = document.positionAt(includesMatch.index);
+                const blockEnd = document.positionAt(includesMatch.index + includesMatch[0].length);
+                
+                if (position.line > blockStart.line && position.line < blockEnd.line) {
+                    const filename = quotedPathMatch[1];
+                    const filenameStart = line.indexOf(filename);
+                    const filenameEnd = filenameStart + filename.length;
+                    
+                    // Check if the cursor is actually on the filename
+                    if (position.character >= filenameStart && position.character <= filenameEnd) {
+                        // Try to resolve the path of the included file
+                        let includeUri: vscode.Uri | undefined;
+                        
+                        // First try as a relative path
+                        const relativePath = path.join(path.dirname(document.uri.fsPath), filename);
+                        if (fs.existsSync(relativePath)) {
+                            includeUri = vscode.Uri.file(relativePath);
+                        } else {
+                            // Search in workspace folders for an exact match
+                            const workspaceFolders = vscode.workspace.workspaceFolders;
+                            if (workspaceFolders) {
+                                for (const folder of workspaceFolders) {
+                                    const potentialPath = path.join(folder.uri.fsPath, filename);
+                                    if (fs.existsSync(potentialPath)) {
+                                        includeUri = vscode.Uri.file(potentialPath);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (includeUri) {
+                            // Return a location pointing to the start of the file
+                            return new vscode.Location(includeUri, new vscode.Position(0, 0));
+                        }
+                    }
+                }
+            }
+        }
+        
+        return undefined;
     }
 
     private getSymbolUnderCursor(document: vscode.TextDocument, position: vscode.Position): string | undefined {
@@ -1223,6 +1329,75 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
                     document.uri,
                     new vscode.Position(startPos.line, 0)
                 );
+            }
+        }
+        
+        // Check for enum values and find the containing enum
+        // First, check if this is an enum value (member)
+        const enumValuePattern = new RegExp(`\\b${symbolName}\\s*(?:=.*?)?(?:,|$|\\s*(?://|/\\*))`, 'gm');
+        let enumValueMatch;
+        
+        while ((enumValueMatch = enumValuePattern.exec(text)) !== null) {
+            const valuePos = document.positionAt(enumValueMatch.index);
+            const valueLine = valuePos.line;
+            
+            // Search backwards to find the containing enum declaration
+            let braceCount = 0;
+            let enumFound = false;
+            
+            for (let line = valueLine; line >= 0; line--) {
+                const lineText = document.lineAt(line).text.trim();
+                
+                // Count braces to track nesting
+                braceCount += (lineText.match(/{/g) || []).length;
+                braceCount -= (lineText.match(/}/g) || []).length;
+                
+                // Check for enum declaration with opening brace
+                const enumDeclPattern = /enum\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*{/;
+                const enumMatch = lineText.match(enumDeclPattern);
+                
+                if (enumMatch) {
+                    // Found named enum declaration
+                    enumFound = true;
+                    return new vscode.Location(
+                        document.uri,
+                        new vscode.Position(line, 0)
+                    );
+                }
+                
+                // Check for enum declaration with opening brace on the next line
+                const enumDeclNextLinePattern = /enum\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*$/;
+                const enumNextLineMatch = lineText.match(enumDeclNextLinePattern);
+                
+                if (enumNextLineMatch) {
+                    // Found named enum declaration with brace on next line
+                    enumFound = true;
+                    return new vscode.Location(
+                        document.uri,
+                        new vscode.Position(line, 0)
+                    );
+                }
+                
+                // Check for anonymous enum
+                if (lineText.match(/enum\s*{/)) {
+                    // Found anonymous enum
+                    enumFound = true;
+                    return new vscode.Location(
+                        document.uri,
+                        new vscode.Position(line, 0)
+                    );
+                }
+                
+                // If we find a closing brace followed by an enum type variable declaration
+                if (lineText.match(/}\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*;/) && braceCount < 0) {
+                    // We've exited the enum scope, stop searching
+                    break;
+                }
+                
+                // If we find a semicolon at the top level, we're likely outside any enum
+                if (lineText.endsWith(';') && braceCount <= 0) {
+                    break;
+                }
             }
         }
         
