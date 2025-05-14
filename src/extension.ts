@@ -1190,6 +1190,11 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
             return true;
         }
         
+        // Check if this is a member access (followed by '.')
+        if (wordEndIndex < lineText.length && lineText[wordEndIndex] === '.') {
+            return true;
+        }
+        
         // Check if this is a member access (preceded by . or ->)
         if (wordStartIndex > 0 && 
             (lineText.substring(wordStartIndex - 2, wordStartIndex) === '->' || 
@@ -1206,8 +1211,8 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         const beforeChar = wordStartIndex > 0 ? lineText[wordStartIndex - 1] : '';
         const afterChar = wordEndIndex < lineText.length ? lineText[wordEndIndex] : '';
         
-        const operatorsBefore = [' ', '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', '(', ',', '?', ':'];
-        const operatorsAfter = [' ', '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', ')', ',', ';', '?', ':'];
+        const operatorsBefore = [' ', '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', '(', '[', ',', '?', ':'];
+        const operatorsAfter = [' ', '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', ')', ']', ',', ';', '?', ':'];
         
         if (operatorsBefore.includes(beforeChar) && operatorsAfter.includes(afterChar)) {
             return true;
@@ -1257,10 +1262,10 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         // Pattern to find class definitions with opening brace on next line
         const classDefNextLinePattern = new RegExp(`class\\s+${symbolName}\\s*(?:extends\\s+[a-zA-Z_][a-zA-Z0-9_]*)?\\s*$`, 'gm');
         
-        // Pattern to find variable declarations
+        // Pattern to find variable declarations (now includes IP_Address and IP_Endpoint, case-insensitive)
         const varDefPattern = new RegExp(
-            `(?:static|extern|const|unsigned|signed|volatile)?\\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|timer|msTimer|message|FRFrame|FRPDU|linFrame|a429word|diagRequest|diagResponse|J1587Message|J1587Param|ethernetPacket)\\s+(?:[a-zA-Z_][a-zA-Z0-9_]*,\\s*)*${symbolName}(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:\\[.*\\])?\\s*(?:=.*)?;`, 
-            'g'
+            `(?:static|extern|const|unsigned|signed|volatile)?\\s*(int|float|byte|word|dword|char|long|int64|qword|double|string|timer|msTimer|message|IP_Address|IP_Endpoint|FRFrame|FRPDU|linFrame|a429word|diagRequest|diagResponse|J1587Message|J1587Param|ethernetPacket)\\s+(?:[a-zA-Z_][a-zA-Z0-9_]*,\\s*)*${symbolName}(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*\\s*(?:\\[.*\\])?\\s*(?:=.*)?;`,
+            'gi'
         );
         
         // Pattern to find struct variable declarations
