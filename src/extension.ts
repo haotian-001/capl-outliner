@@ -16,6 +16,17 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.languages.registerDefinitionProvider(selector, definitionProvider)
     );
+
+    // Register the completion provider for CAPL files
+    const completionProvider = new CaplCompletionItemProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            selector,
+            completionProvider,
+            '.', // Trigger completion after typing a dot
+            ':' // Trigger completion after typing :: for namespaces
+        )
+    );
     
     console.log('CAPL Outliner extension activated');
 }
@@ -1516,5 +1527,360 @@ class CaplDefinitionProvider implements vscode.DefinitionProvider {
         }
         
         return undefined;
+    }
+}
+
+class CaplCompletionItemProvider implements vscode.CompletionItemProvider {
+    /** Return all members of the struct that the given variable refers to */
+    private getStructMembersForVariable(variableName: string, symbols: vscode.DocumentSymbol[]): vscode.DocumentSymbol[] {
+        const variableSymbol = this.findVariableSymbol(variableName, symbols);
+        if (!variableSymbol) {
+            return [];
+        }
+
+        const detail = variableSymbol.detail || "";
+        let structType: string | undefined;
+
+        // Match "struct MyType" pattern first
+        const structTypeMatch = detail.match(/struct\s+([A-Za-z_][A-Za-z0-9_]*)/);
+        if (structTypeMatch) {
+            structType = structTypeMatch[1];
+        } else {
+            // Match "MyType Instance" pattern
+            const instanceMatch = detail.match(/^([A-Za-z_][A-Za-z0-9_]*)\s+Instance/);
+            if (instanceMatch) {
+                structType = instanceMatch[1];
+            }
+        }
+
+        if (!structType) {
+            return [];
+        }
+
+        const structSymbol = this.findStructSymbol(structType, symbols);
+        return structSymbol ? structSymbol.children : [];
+    }
+
+    /** Recursively find a variable‑symbol by name */
+    private findVariableSymbol(name: string, symbols: vscode.DocumentSymbol[]): vscode.DocumentSymbol | undefined {
+        for (const sym of symbols) {
+            if (sym.kind === vscode.SymbolKind.Variable && sym.name === name) {
+                return sym;
+            }
+            if (sym.children?.length) {
+                const found = this.findVariableSymbol(name, sym.children);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+        return undefined;
+    }
+
+    /** Recursively find a struct‑symbol by name */
+    private findStructSymbol(name: string, symbols: vscode.DocumentSymbol[]): vscode.DocumentSymbol | undefined {
+        for (const sym of symbols) {
+            if (sym.kind === vscode.SymbolKind.Struct && sym.name === name) {
+                return sym;
+            }
+            if (sym.children?.length) {
+                const found = this.findStructSymbol(name, sym.children);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+        return undefined;
+    }
+    // CAPL keywords and types
+    private static readonly KEYWORDS = [
+        'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break',
+        'continue', 'return', 'void', 'int', 'float', 'byte', 'word', 'dword',
+        'char', 'long', 'int64', 'qword', 'double', 'string', 'timer', 'msTimer',
+        'message', 'const', 'static', 'extern', 'this', 'sizeof', 'true', 'false',
+        'struct', 'enum', 'class', 'extends', 'includes', 'testcase', 'testfunction',
+        'on', 'preStart', 'start', 'stop', 'timer', 'key', 'message', 'sysvar', 'error',
+        'J1587Message', 'J1587Param', 'J1587ErrorMessage', 'ethernetPacket',
+        'ethernetErrorPacket', 'ethLinkStateChange'
+    ];
+
+    // CAPL built-in types
+    private static readonly TYPES = [
+        'void', 'int', 'float', 'byte', 'word', 'dword', 'char', 'long', 'int64',
+        'qword', 'double', 'string', 'timer', 'msTimer', 'message', 'FRFrame',
+        'FRPDU', 'linFrame', 'a429word', 'Signal', 'diagRequest', 'diagResponse',
+        'J1587Message', 'J1587Param', 'sysvar', 'sysvarInt', 'sysvarFloat',
+        'sysvarString', 'ethernetPacket', 'ethernetErrorPacket', 'ethernetPort',
+        'ethernetPortAccessEntity', 'ethernetMacsecConfiguration',
+        'ethernetMacsecSecureEntity', 'IP_Address', 'IP_Endpoint'
+    ];
+
+    public async provideCompletionItems(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        token: vscode.CancellationToken,
+        context: vscode.CompletionContext
+    ): Promise<vscode.CompletionItem[] | vscode.CompletionList> {
+        const linePrefix = document.lineAt(position).text.substring(0, position.character);
+        const completionItems: vscode.CompletionItem[] = [];
+
+        // ── struct‑member completion when typing "<variable>." ──────────────────────
+        const structAccessMatch = linePrefix.match(/([A-Za-z_][A-Za-z0-9_]*)\.\s*$/);
+        if (structAccessMatch) {
+            const baseVarName = structAccessMatch[1];
+            const allSymbols =
+                (await new CaplDocumentSymbolProvider().provideDocumentSymbols(document, token)) ?? [];
+            const structMembers = this.getStructMembersForVariable(baseVarName, allSymbols);
+            if (structMembers.length) {
+                const seenNames = new Set<string>();
+                for (const member of structMembers) {
+                    if (seenNames.has(member.name)) continue;
+                    seenNames.add(member.name);
+
+                    const item = new vscode.CompletionItem(member.name, this.getCompletionItemKind(member.kind));
+                    item.detail = member.detail;
+                    item.documentation = new vscode.MarkdownString(this.getSymbolDocumentation(member));
+                    completionItems.push(item);
+                }
+                return completionItems;  // Return early with only relevant members
+            }
+        }
+
+        // Get all symbols in the current document
+        const symbolProvider = new CaplDocumentSymbolProvider();
+        const documentSymbols = await symbolProvider.provideDocumentSymbols(document, token);
+
+        // Add keyword completions if we're at the start of a word
+        if (this.isStartOfWord(linePrefix)) {
+            this.addKeywordCompletions(completionItems);
+        }
+
+        // Add type completions if we're in a context where types are expected
+        if (this.isTypeExpected(linePrefix)) {
+            this.addTypeCompletions(completionItems);
+        }
+
+        // Add symbol completions from the current document, with deduplication
+        const seenNames = new Set<string>();
+        if (documentSymbols) {
+            this.addSymbolCompletions(completionItems, documentSymbols, linePrefix, seenNames);
+        }
+
+        // Add completions from included files
+        await this.addIncludedFileCompletions(document, completionItems, token);
+
+        return completionItems;
+    }
+
+    private isStartOfWord(linePrefix: string): boolean {
+        // Check if we're at the start of a word (after whitespace or certain characters)
+        const lastChar = linePrefix.trim().slice(-1);
+        return !lastChar || /[\s{};,()[\]]/.test(lastChar);
+    }
+
+    private isTypeExpected(linePrefix: string): boolean {
+        // Check if we're in a context where types are expected
+        const trimmedPrefix = linePrefix.trim();
+        return /^(struct|enum|class|typedef|const|static|extern|unsigned|signed|volatile)\s*$/.test(trimmedPrefix) ||
+               /^(void|int|float|byte|word|dword|char|long|int64|qword|double|string)\s+\**\s*$/.test(trimmedPrefix);
+    }
+
+    private addKeywordCompletions(completionItems: vscode.CompletionItem[]) {
+        for (const keyword of CaplCompletionItemProvider.KEYWORDS) {
+            const item = new vscode.CompletionItem(keyword, vscode.CompletionItemKind.Keyword);
+            item.detail = 'CAPL Keyword';
+            completionItems.push(item);
+        }
+    }
+
+    private addTypeCompletions(completionItems: vscode.CompletionItem[]) {
+        for (const type of CaplCompletionItemProvider.TYPES) {
+            const item = new vscode.CompletionItem(type, vscode.CompletionItemKind.Class);
+            item.detail = 'CAPL Type';
+            completionItems.push(item);
+        }
+    }
+
+    private addSymbolCompletions(
+        completionItems: vscode.CompletionItem[],
+        symbols: vscode.DocumentSymbol[],
+        linePrefix: string,
+        seenNames: Set<string>
+    ) {
+        for (const symbol of symbols) {
+            if (seenNames.has(symbol.name)) {
+                continue; // Skip duplicates
+            }
+            seenNames.add(symbol.name);
+
+            // Add the symbol itself
+            const item = new vscode.CompletionItem(symbol.name, this.getCompletionItemKind(symbol.kind));
+            item.detail = symbol.detail;
+            item.documentation = new vscode.MarkdownString(this.getSymbolDocumentation(symbol));
+            completionItems.push(item);
+
+            // Context‑specific member completion is handled earlier; skip generic explosion.
+
+            // Recursively add child symbols
+            if (symbol.children && symbol.children.length > 0) {
+                this.addSymbolCompletions(completionItems, symbol.children, linePrefix, seenNames);
+            }
+        }
+    }
+
+    private async addIncludedFileCompletions(
+        document: vscode.TextDocument,
+        completionItems: vscode.CompletionItem[],
+        token: vscode.CancellationToken
+    ) {
+        const visitedFiles = new Set<string>();
+        await this.findCompletionsInIncludedFiles(document, completionItems, visitedFiles, token);
+    }
+
+    private async findCompletionsInIncludedFiles(
+        document: vscode.TextDocument,
+        completionItems: vscode.CompletionItem[],
+        visitedFiles: Set<string>,
+        token: vscode.CancellationToken
+    ) {
+        const currentFilePath = document.uri.fsPath;
+        if (visitedFiles.has(currentFilePath)) {
+            return;
+        }
+        visitedFiles.add(currentFilePath);
+
+        const text = document.getText();
+        const includePattern = /#include\s+["<]([^">]+)[">]/g;
+        let match;
+
+        while ((match = includePattern.exec(text)) !== null) {
+            const includePath = match[1];
+            const resolvedPath = this.resolveIncludePath(document, includePath);
+
+            if (resolvedPath && fs.existsSync(resolvedPath)) {
+                try {
+                    const includedDoc = await vscode.workspace.openTextDocument(resolvedPath);
+                    const symbolProvider = new CaplDocumentSymbolProvider();
+                    const symbols = await symbolProvider.provideDocumentSymbols(includedDoc, token);
+
+                    if (symbols) {
+                        this.addSymbolCompletions(completionItems, symbols, '', new Set<string>());
+                        await this.findCompletionsInIncludedFiles(includedDoc, completionItems, visitedFiles, token);
+                    }
+                } catch (error) {
+                    console.error(`Error processing included file: ${resolvedPath}`, error);
+                }
+            }
+        }
+    }
+
+    private resolveIncludePath(document: vscode.TextDocument, includePath: string): string | undefined {
+        // First try relative to the current file
+        let resolvedPath = path.join(path.dirname(document.uri.fsPath), includePath);
+        if (fs.existsSync(resolvedPath)) {
+            return resolvedPath;
+        }
+
+        // Try workspace folders
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders) {
+            for (const folder of workspaceFolders) {
+                resolvedPath = path.join(folder.uri.fsPath, includePath);
+                if (fs.existsSync(resolvedPath)) {
+                    return resolvedPath;
+                }
+            }
+        }
+
+        return undefined;
+    }
+
+    private getCompletionItemKind(symbolKind: vscode.SymbolKind): vscode.CompletionItemKind {
+        switch (symbolKind) {
+            case vscode.SymbolKind.File:
+                return vscode.CompletionItemKind.File;
+            case vscode.SymbolKind.Module:
+                return vscode.CompletionItemKind.Module;
+            case vscode.SymbolKind.Namespace:
+                return vscode.CompletionItemKind.Module;
+            case vscode.SymbolKind.Package:
+                return vscode.CompletionItemKind.Module;
+            case vscode.SymbolKind.Class:
+                return vscode.CompletionItemKind.Class;
+            case vscode.SymbolKind.Method:
+                return vscode.CompletionItemKind.Method;
+            case vscode.SymbolKind.Property:
+                return vscode.CompletionItemKind.Property;
+            case vscode.SymbolKind.Field:
+                return vscode.CompletionItemKind.Field;
+            case vscode.SymbolKind.Constructor:
+                return vscode.CompletionItemKind.Constructor;
+            case vscode.SymbolKind.Enum:
+                return vscode.CompletionItemKind.Enum;
+            case vscode.SymbolKind.Interface:
+                return vscode.CompletionItemKind.Interface;
+            case vscode.SymbolKind.Function:
+                return vscode.CompletionItemKind.Function;
+            case vscode.SymbolKind.Variable:
+                return vscode.CompletionItemKind.Variable;
+            case vscode.SymbolKind.Constant:
+                return vscode.CompletionItemKind.Constant;
+            case vscode.SymbolKind.String:
+                return vscode.CompletionItemKind.Value;
+            case vscode.SymbolKind.Number:
+                return vscode.CompletionItemKind.Value;
+            case vscode.SymbolKind.Boolean:
+                return vscode.CompletionItemKind.Value;
+            case vscode.SymbolKind.Array:
+                return vscode.CompletionItemKind.Value;
+            case vscode.SymbolKind.Object:
+                return vscode.CompletionItemKind.Value;
+            case vscode.SymbolKind.Key:
+                return vscode.CompletionItemKind.Keyword;
+            case vscode.SymbolKind.Null:
+                return vscode.CompletionItemKind.Value;
+            case vscode.SymbolKind.EnumMember:
+                return vscode.CompletionItemKind.EnumMember;
+            case vscode.SymbolKind.Struct:
+                return vscode.CompletionItemKind.Struct;
+            case vscode.SymbolKind.Event:
+                return vscode.CompletionItemKind.Event;
+            case vscode.SymbolKind.Operator:
+                return vscode.CompletionItemKind.Operator;
+            case vscode.SymbolKind.TypeParameter:
+                return vscode.CompletionItemKind.TypeParameter;
+            default:
+                return vscode.CompletionItemKind.Text;
+        }
+    }
+
+    private getSymbolDocumentation(symbol: vscode.DocumentSymbol): string {
+        let doc = '';
+        
+        switch (symbol.kind) {
+            case vscode.SymbolKind.Function:
+            case vscode.SymbolKind.Method:
+                doc = `**${symbol.detail}**\n\nFunction defined in the current scope`;
+                break;
+            case vscode.SymbolKind.Variable:
+                doc = `**${symbol.detail}**\n\nVariable of type ${symbol.detail}`;
+                break;
+            case vscode.SymbolKind.Struct:
+                doc = `**struct ${symbol.name}**\n\nStructure definition`;
+                break;
+            case vscode.SymbolKind.Enum:
+                doc = `**enum ${symbol.name}**\n\nEnumeration definition`;
+                break;
+            case vscode.SymbolKind.EnumMember:
+                doc = `**${symbol.name}**\n\nEnum member`;
+                break;
+            case vscode.SymbolKind.Event:
+                doc = `**${symbol.detail}**\n\nEvent handler`;
+                break;
+            default:
+                doc = symbol.detail || symbol.name;
+        }
+
+        return doc;
     }
 } 
