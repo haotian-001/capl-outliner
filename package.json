@@ -2,7 +2,7 @@
   "name": "capl-outliner",
   "displayName": "CAPL Outliner",
   "description": "Enhanced outline view for CAPL (CAN Access Programming Language) with support for structures, enumerations, classes, and all event handlers",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "icon": "images/image.png",
   "publisher": "sisyphus",
   "repository": {
@@ -49,11 +49,13 @@
     "package": "vsce package --no-dependencies",
     "publish": "npx @vscode/vsce publish --no-dependencies"
   },
-  "dependencies": {},
+  "dependencies": {
+    "vscode-languageclient": "^8.0.1"
+  },
   "devDependencies": {
     "@types/node": "^16.11.7",
     "@types/vscode": "^1.60.0",
-    "typescript": "^4.5.4",
-    "@vscode/vsce": "latest"
+    "@vscode/vsce": "latest",
+    "typescript": "^4.5.4"
   }
 }
