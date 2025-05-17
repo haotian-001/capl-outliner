@@ -761,7 +761,7 @@ class CaplDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
             const variableMatch = line.match(variablePattern);
             if (variableMatch) {
                 const variableType = variableMatch[1];
-                const variableNames = variableMatch[2].split(',').map(name => name.trim());
+                const variableNames = variableMatch[2].split(',').map((name: string) => name.trim());
                 
                 for (const variableName of variableNames) {
                     const variableSymbol = new vscode.DocumentSymbol(
