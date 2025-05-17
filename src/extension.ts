@@ -18,7 +18,8 @@ export function activate(context: ExtensionContext) {
     };
 
     client = new LanguageClient('capl-lsp', 'CAPL Language Server', serverOptions, clientOptions);
-    context.subscriptions.push(client.start());
+    context.subscriptions.push(client);
+    client.start();
 }
 
 export function deactivate(): Thenable<void> | undefined {
