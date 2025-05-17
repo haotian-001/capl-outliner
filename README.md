@@ -2,6 +2,8 @@
 
 A Visual Studio Code extension for displaying the outline of CAPL (CAN Access Programming Language) code files and providing code navigation features.
 
+Starting with version 0.5.0 the extension uses a Python-based language server communicating over the Language Server Protocol.
+
 ## Features
 
 This extension provides:
@@ -78,12 +80,15 @@ The extension allows you to navigate to the definition of symbols by:
 ### Prerequisites
 - Node.js
 - npm
+- Python 3
+- pip
 
 ### Setup
 ```bash
 git clone https://github.com/haotian-001/capl-outliner.git
 cd capl-outliner
 npm install
+pip install pygls
 ```
 
 ### Building
